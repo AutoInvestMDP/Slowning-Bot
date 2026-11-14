@@ -1,4 +1,4 @@
-import os, random, asyncio, json, requests, time, textwrap, math
+import os, asyncio, json, requests, time, textwrap, math
 import edge_tts
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -18,12 +18,24 @@ def get_font(size, bold=True):
     except: return ImageFont.load_default()
 
 def llamar_gemini(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
-    r = requests.post(url, json={"contents":[{"parts":[{"text":prompt}]}]}, timeout=120)
-    if r.status_code != 200:
-        print(r.text[:500]); raise Exception("Error Gemini")
-    txt = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-    return txt.replace("```json","").replace("```","").strip()
+    modelos = ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    ultimo_error = ""
+    for modelo in modelos:
+        for version in ["v1beta", "v1"]:
+            url = f"https://generativelanguage.googleapis.com/{version}/models/{modelo}:generateContent?key={GEMINI_KEY}"
+            try:
+                r = requests.post(url, json={"contents":[{"parts":[{"text":prompt}]}]}, timeout=120)
+                print(f"DEBUG probando {modelo} {version} status: {r.status_code}")
+                if r.status_code == 200:
+                    txt = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    return txt.replace("```json","").replace("```","").strip()
+                ultimo_error = r.text[:500]
+                if r.status_code in [404, 400]:
+                    break
+            except Exception as e:
+                ultimo_error = str(e)
+                print(f"Error con {modelo}: {e}")
+    raise Exception("Error Gemini, todos los modelos fallaron: " + ultimo_error)
 
 def generar_shorts():
     prompt = """Dame 3 temas VIRALES de gaming de hoy, diferentes entre si. Nichos: easter eggs, noticias Ubisoft/Rockstar/Nintendo, curiosidades GTA/Fortnite/Minecraft/Roblox, trucos virales.
