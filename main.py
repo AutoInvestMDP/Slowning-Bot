@@ -10,31 +10,49 @@ if not GEMINI_KEY:
     print("ERROR: El Secret GEMINI_API_KEY esta vacio en GitHub.")
     raise SystemExit(1)
 
+def listar_modelos():
+    # Pregunta a Google que modelos tenes disponibles, no adivina
+    for version in ["v1beta", "v1"]:
+        try:
+            r = requests.get(f"https://generativelanguage.googleapis.com/{version}/models?key={GEMINI_KEY}", timeout=30)
+            print(f"DEBUG ListModels {version} status: {r.status_code}")
+            if r.status_code == 200:
+                modelos = []
+                for m in r.json().get("models", []):
+                    if "generateContent" in m.get("supportedGenerationMethods", []):
+                        # m['name'] viene como "models/gemini-xxx"
+                        modelos.append(m["name"].replace("models/", ""))
+                print(f"DEBUG modelos disponibles: {modelos}")
+                return version, modelos
+        except Exception as e:
+            print(f"Error listando {version}: {e}")
+    return "v1beta", []
+
 def llamar_gemini(prompt):
-    # Si uno esta saturado (503) pasa al siguiente solo
-    modelos = [
-        "gemini-3.8-flash",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash-lite",
-        "gemini-1.5-flash",
-    ]
+    version, modelos = listar_modelos()
+    if not modelos:
+        # Si no pudo listar, prueba con los mas nuevos que si existen
+        modelos = ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-2.5-flash"]
+    
+    # Priorizar flash, que son los mas baratos y menos saturados
+    modelos = sorted(modelos, key=lambda x: ("flash" not in x, x))
+    print(f"DEBUG voy a probar: {modelos}")
+
     ultimo_error = ""
     for modelo in modelos:
-        for intento in range(3):
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={GEMINI_KEY}"
+        for intento in range(2):
+            url = f"https://generativelanguage.googleapis.com/{version}/models/{modelo}:generateContent?key={GEMINI_KEY}"
             data = {"contents": [{"parts": [{"text": prompt}]}]}
             try:
-                r = requests.post(url, json=data, timeout=60)
+                r = requests.post(url, json=data, timeout=120)
                 print(f"DEBUG {modelo} intento {intento+1} status: {r.status_code}")
                 if r.status_code == 200:
                     return r.json()["candidates"][0]["content"]["parts"][0]["text"]
                 ultimo_error = r.text[:500]
-                # 503 = saturado, 429 = mucho trafico -> esperar y reintentar
                 if r.status_code in [503, 429]:
-                    time.sleep(5 * (intento + 1))
+                    print(f"{modelo} saturado, espero 10s y pruebo siguiente")
+                    time.sleep(10)
                     continue
-                # 404 = modelo no existe -> pasar al siguiente modelo
                 if r.status_code == 404:
                     break
                 print(ultimo_error)
