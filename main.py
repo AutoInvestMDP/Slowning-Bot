@@ -4,12 +4,14 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# No usamos google-genai porque no acepta las keys AQ. Usamos REST directo
-GEMINI_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
+GEMINI_KEY = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
 print(f"DEBUG: key encontrada? {'SI' if GEMINI_KEY else 'NO'} largo: {len(GEMINI_KEY)}")
+if not GEMINI_KEY:
+    print("ERROR: El Secret GEMINI_API_KEY esta vacio en GitHub.")
+    raise SystemExit(1)
 
 def llamar_gemini(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={GEMINI_KEY}"
     data = {"contents": [{"parts": [{"text": prompt}]}]}
     r = requests.post(url, json=data, timeout=60)
     print(f"DEBUG Gemini status: {r.status_code}")
