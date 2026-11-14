@@ -1,4 +1,4 @@
-import os, random, asyncio, json, requests
+import os, random, asyncio, json, requests, time
 import edge_tts
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -11,14 +11,37 @@ if not GEMINI_KEY:
     raise SystemExit(1)
 
 def llamar_gemini(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={GEMINI_KEY}"
-    data = {"contents": [{"parts": [{"text": prompt}]}]}
-    r = requests.post(url, json=data, timeout=60)
-    print(f"DEBUG Gemini status: {r.status_code}")
-    if r.status_code != 200:
-        print(r.text[:500])
-        raise Exception("Error Gemini: " + r.text[:500])
-    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    # Si uno esta saturado (503) pasa al siguiente solo
+    modelos = [
+        "gemini-3.8-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-flash",
+    ]
+    ultimo_error = ""
+    for modelo in modelos:
+        for intento in range(3):
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={GEMINI_KEY}"
+            data = {"contents": [{"parts": [{"text": prompt}]}]}
+            try:
+                r = requests.post(url, json=data, timeout=60)
+                print(f"DEBUG {modelo} intento {intento+1} status: {r.status_code}")
+                if r.status_code == 200:
+                    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                ultimo_error = r.text[:500]
+                # 503 = saturado, 429 = mucho trafico -> esperar y reintentar
+                if r.status_code in [503, 429]:
+                    time.sleep(5 * (intento + 1))
+                    continue
+                # 404 = modelo no existe -> pasar al siguiente modelo
+                if r.status_code == 404:
+                    break
+                print(ultimo_error)
+            except Exception as e:
+                print(f"Error con {modelo}: {e}")
+                time.sleep(5)
+    raise Exception("Error Gemini, todos los modelos fallaron: " + ultimo_error)
 
 def get_youtube():
     creds = Credentials(
