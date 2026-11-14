@@ -1,24 +1,19 @@
 name: Slowning Bot
 on:
   schedule:
-    - cron: '0 10 * * *'
-    - cron: '0 16 * * *'
-    - cron: '0 22 * * *'
+    - cron: '0 15 * * *' # Todos los dias 12:00 Argentina = 15:00 UTC
   workflow_dispatch:
-
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install -r requirements.txt
+        with: { python-version: '3.11' }
+      - run: pip install edge-tts google-api-python-client google-auth moviepy pillow numpy requests
       - run: python main.py
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
