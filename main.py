@@ -20,7 +20,6 @@ def listar_modelos():
                 for m in r.json().get("models", []):
                     if "generateContent" in m.get("supportedGenerationMethods", []):
                         nombre = m["name"].replace("models/", "")
-                        # Filtrar solo modelos de texto estables, nada de audio/imagen/preview/tts/embedding/veo
                         bajo = nombre.lower()
                         if any(x in bajo for x in ["preview", "image", "tts", "audio", "embedding", "veo", "imagen", "live", "deep-research", "robotics", "aqa", "transcriber"]):
                             continue
@@ -37,10 +36,8 @@ def llamar_gemini(prompt):
     version, modelos = listar_modelos()
     if not modelos:
         modelos = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
-    # Priorizar flash normales, que son los que andan
     modelos = sorted(modelos, key=lambda x: (0 if "flash" in x and "lite" not in x else 1, x))
     print(f"DEBUG voy a probar: {modelos}")
-
     ultimo_error = ""
     for modelo in modelos:
         for intento in range(2):
@@ -64,12 +61,14 @@ def llamar_gemini(prompt):
     raise Exception("Error Gemini, todos los modelos fallaron: " + ultimo_error)
 
 def get_youtube():
+    # Si el token no coincide con el CLIENT_ID/SECRET da unauthorized_client
+    print(f"DEBUG YT_CLIENT_ID largo: {len(os.getenv('YT_CLIENT_ID',''))} YT_REFRESH largo: {len(os.getenv('YT_REFRESH_TOKEN',''))}")
     creds = Credentials(
         None,
-        refresh_token=os.environ["YT_REFRESH_TOKEN"],
+        refresh_token=os.environ["YT_REFRESH_TOKEN"].strip(),
         token_uri="https://oauth2.googleapis.com/token",
-        client_id=os.environ["YT_CLIENT_ID"],
-        client_secret=os.environ["YT_CLIENT_SECRET"],
+        client_id=os.environ["YT_CLIENT_ID"].strip(),
+        client_secret=os.environ["YT_CLIENT_SECRET"].strip(),
         scopes=["https://www.googleapis.com/auth/youtube.upload"]
     )
     return build("youtube", "v3", credentials=creds)
@@ -91,10 +90,8 @@ async def crear_voz(texto, idioma):
     await edge_tts.Communicate(texto, voz).save("voz.mp3")
 
 def crear_video(titulo):
-    # SIN ImageMagick: dibuja el texto con Pillow y lo usa como fondo
     from PIL import Image, ImageDraw, ImageFont
     from moviepy.editor import AudioFileClip, ImageClip
-
     W, H = 1080, 1920
     img = Image.new("RGB", (W, H), (15, 0, 30))
     draw = ImageDraw.Draw(img)
@@ -104,7 +101,6 @@ def crear_video(titulo):
     except:
         font = ImageFont.load_default()
         font_sub = font
-
     lineas = textwrap.wrap(titulo, width=22)
     y = H // 2 - len(lineas) * 45
     for linea in lineas:
@@ -112,10 +108,8 @@ def crear_video(titulo):
         tw = bbox[2] - bbox[0]
         draw.text(((W - tw) // 2, y), linea, fill=(255, 255, 255), font=font)
         y += 90
-
     draw.text((W//2 - 120, y + 60), "@Slowning", fill=(255, 200, 50), font=font_sub)
     img.save("fondo.png")
-
     audio = AudioFileClip("voz.mp3")
     dur = min(audio.duration, 58)
     clip = ImageClip("fondo.png").set_duration(dur).set_audio(audio)
@@ -144,6 +138,10 @@ async def main():
     await crear_voz(data["guion"], idioma)
     crear_video(data["titulo"])
     yt = get_youtube()
-    subir(yt, "short.mp4", data["titulo"], data["guion"][:200])
+    try:
+        subir(yt, "short.mp4", data["titulo"], data["guion"][:200])
+    except Exception as e:
+        print("ERROR SUBIENDO A YOUTUBE: El Refresh Token no coincide con el Client ID/Secret. Regeneralo en OAuth Playground con el mismo Client ID/Secret que tenes en GitHub.")
+        raise e
 
 asyncio.run(main())
