@@ -5,7 +5,10 @@ from PIL import Image, ImageDraw, ImageFont
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from moviepy.editor import AudioFileClip, VideoClip
+try:
+    from moviepy.editor import AudioFileClip, VideoClip
+except ImportError:
+    from moviepy import AudioFileClip, VideoClip
 
 GEMINI_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
 
