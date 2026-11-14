@@ -1,4 +1,4 @@
-import os, random, asyncio, json, requests, time
+import os, random, asyncio, json, requests, time, textwrap
 import edge_tts
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -11,7 +11,6 @@ if not GEMINI_KEY:
     raise SystemExit(1)
 
 def listar_modelos():
-    # Pregunta a Google que modelos tenes disponibles, no adivina
     for version in ["v1beta", "v1"]:
         try:
             r = requests.get(f"https://generativelanguage.googleapis.com/{version}/models?key={GEMINI_KEY}", timeout=30)
@@ -20,9 +19,15 @@ def listar_modelos():
                 modelos = []
                 for m in r.json().get("models", []):
                     if "generateContent" in m.get("supportedGenerationMethods", []):
-                        # m['name'] viene como "models/gemini-xxx"
-                        modelos.append(m["name"].replace("models/", ""))
-                print(f"DEBUG modelos disponibles: {modelos}")
+                        nombre = m["name"].replace("models/", "")
+                        # Filtrar solo modelos de texto estables, nada de audio/imagen/preview/tts/embedding/veo
+                        bajo = nombre.lower()
+                        if any(x in bajo for x in ["preview", "image", "tts", "audio", "embedding", "veo", "imagen", "live", "deep-research", "robotics", "aqa", "transcriber"]):
+                            continue
+                        if "gemini" not in bajo:
+                            continue
+                        modelos.append(nombre)
+                print(f"DEBUG modelos filtrados: {modelos}")
                 return version, modelos
         except Exception as e:
             print(f"Error listando {version}: {e}")
@@ -31,11 +36,9 @@ def listar_modelos():
 def llamar_gemini(prompt):
     version, modelos = listar_modelos()
     if not modelos:
-        # Si no pudo listar, prueba con los mas nuevos que si existen
-        modelos = ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-2.5-flash"]
-    
-    # Priorizar flash, que son los mas baratos y menos saturados
-    modelos = sorted(modelos, key=lambda x: ("flash" not in x, x))
+        modelos = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
+    # Priorizar flash normales, que son los que andan
+    modelos = sorted(modelos, key=lambda x: (0 if "flash" in x and "lite" not in x else 1, x))
     print(f"DEBUG voy a probar: {modelos}")
 
     ultimo_error = ""
@@ -50,10 +53,9 @@ def llamar_gemini(prompt):
                     return r.json()["candidates"][0]["content"]["parts"][0]["text"]
                 ultimo_error = r.text[:500]
                 if r.status_code in [503, 429]:
-                    print(f"{modelo} saturado, espero 10s y pruebo siguiente")
                     time.sleep(10)
                     continue
-                if r.status_code == 404:
+                if r.status_code in [404, 400]:
                     break
                 print(ultimo_error)
             except Exception as e:
@@ -89,14 +91,35 @@ async def crear_voz(texto, idioma):
     await edge_tts.Communicate(texto, voz).save("voz.mp3")
 
 def crear_video(titulo):
-    from moviepy.editor import ColorClip, AudioFileClip, TextClip, CompositeVideoClip
+    # SIN ImageMagick: dibuja el texto con Pillow y lo usa como fondo
+    from PIL import Image, ImageDraw, ImageFont
+    from moviepy.editor import AudioFileClip, ImageClip
+
+    W, H = 1080, 1920
+    img = Image.new("RGB", (W, H), (15, 0, 30))
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 68)
+        font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 42)
+    except:
+        font = ImageFont.load_default()
+        font_sub = font
+
+    lineas = textwrap.wrap(titulo, width=22)
+    y = H // 2 - len(lineas) * 45
+    for linea in lineas:
+        bbox = draw.textbbox((0, 0), linea, font=font)
+        tw = bbox[2] - bbox[0]
+        draw.text(((W - tw) // 2, y), linea, fill=(255, 255, 255), font=font)
+        y += 90
+
+    draw.text((W//2 - 120, y + 60), "@Slowning", fill=(255, 200, 50), font=font_sub)
+    img.save("fondo.png")
+
     audio = AudioFileClip("voz.mp3")
     dur = min(audio.duration, 58)
-    clip = ColorClip(size=(1080, 1920), color=(15, 0, 30), duration=dur)
-    txt = TextClip(titulo, fontsize=70, color='white', size=(900, None), method='caption')
-    txt = txt.set_position('center').set_duration(dur)
-    video = CompositeVideoClip([clip, txt]).set_audio(audio)
-    video.write_videofile("short.mp4", fps=24, codec="libx264", audio_codec="aac")
+    clip = ImageClip("fondo.png").set_duration(dur).set_audio(audio)
+    clip.write_videofile("short.mp4", fps=24, codec="libx264", audio_codec="aac")
 
 def subir(youtube, archivo, titulo, desc):
     body = {
