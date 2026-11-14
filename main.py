@@ -1,12 +1,22 @@
-import os, random, asyncio, json
-from google import genai
+import os, random, asyncio, json, requests
 import edge_tts
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# Cliente Gemini nuevo, ya corregido
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+# No usamos google-genai porque no acepta las keys AQ. Usamos REST directo
+GEMINI_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
+print(f"DEBUG: key encontrada? {'SI' if GEMINI_KEY else 'NO'} largo: {len(GEMINI_KEY)}")
+
+def llamar_gemini(prompt):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
+    r = requests.post(url, json=data, timeout=60)
+    print(f"DEBUG Gemini status: {r.status_code}")
+    if r.status_code != 200:
+        print(r.text[:500])
+        raise Exception("Error Gemini: " + r.text[:500])
+    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
 
 def get_youtube():
     creds = Credentials(
@@ -27,7 +37,7 @@ def generar_tema(idioma):
         "noticia viral de gaming de hoy"
     ]
     prompt = f"Dame 1 tema MUY viral de hoy sobre {random.choice(nichos)}, en {idioma}. Devolveme solo JSON, sin markdown: {{\"titulo\": \"...\", \"guion\": \"...\"}} El guion debe ser para un Short de 50 segundos, estilo Slowning, directo, con gancho fuerte al inicio."
-    resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt).text
+    resp = llamar_gemini(prompt)
     resp = resp.replace("```json", "").replace("```", "").strip()
     return json.loads(resp)
 
